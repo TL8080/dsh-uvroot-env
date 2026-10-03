@@ -87,8 +87,11 @@ window.__ModuleLoader__.load({
       }, [])
       return store
     }
-    async function mutate(promise) {
-      const value = await promise
+    async function mutate(task) {
+      // Accepting a thunk keeps a throw while building the request inside this
+      // promise, so the caller's `.finally` still clears the busy state instead
+      // of the click handler throwing and leaving the dialog spinning.
+      const value = await (typeof task === 'function' ? task() : task)
       await refresh()
       emit()
       return value
@@ -738,9 +741,9 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(null)
         setNotice(null)
-        mutate(creating
+        mutate(() => (creating
           ? api('POST', '/container/create', { path, container: containerPayload(draft) })
-          : api('POST', '/container/update', { path, id: editingId, patch: containerPayload(draft) }))
+          : api('POST', '/container/update', { path, id: editingId, patch: containerPayload(draft) })))
           .then((value) => {
             const saved = value?.container
             if (creating) {
@@ -973,7 +976,7 @@ window.__ModuleLoader__.load({
         if (path.trim() === '') { setError('请先选择目录'); return }
         setWorking(true)
         setError(null)
-        mutate(api('POST', '/container/create', { path, container: containerPayload(draft) }))
+        mutate(() => api('POST', '/container/create', { path, container: containerPayload(draft) }))
           .then((value) => {
             setMode('virtual')
             setContainerId(value.container.id)
