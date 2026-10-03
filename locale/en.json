@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "uvroot virtual environments",
+    "description": "Run each workspace and session inside a uvroot user-mode container: no host root, no changes to the external system."
+  }
+}

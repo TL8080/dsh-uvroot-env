@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "uvroot 虚拟环境",
+    "description": "让每个工作目录与会话运行在 uvroot 用户态容器中：无需宿主 root，不影响外部系统环境。"
+  }
+}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="virtual environment workspace">
+  <title>虚拟环境工作区：尖括号中的文件夹</title>
+  <g fill="none" stroke="#4176e6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 15 4 33l11 18"/>
+    <path d="M49 15l11 18-11 18"/>
+  </g>
+  <path d="M20 20h8l3 4h13a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H20a2 2 0 0 1-2-2V22a2 2 0 0 1 2-2z"
+        fill="#4176e6"/>
+</svg>

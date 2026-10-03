@@ -1,0 +1,35 @@
+# @local/dsh-uvroot-env — uvroot user-mode container environments for DSH.
+#
+# This layer is deliberately minimal: it routes confined bash through the
+# uvroot runner so a session that HAS a container executes inside uvroot, and
+# inserts the host plugin row. It changes NO global policy:
+#
+#   * the permission preset table stays the official one, so the composer keeps
+#     the stock permission control in every workspace;
+#   * the default sandbox mode and the approval policy stay the deployment's;
+#   * a workspace that was not created as a virtual environment is completely
+#     untouched — the runner simply replays the bubblewrap profile it was given.
+#
+# `config` overrides are replaced wholesale by the Loader, so the original
+# fields of the `sandbox` row are restated here.
+
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    probeTimeoutMs: 5000
+    # The runner receives the bubblewrap profile arguments the sandbox provider
+    # would have handed to bwrap, then `--`, then the command argv. It wraps the
+    # command in the session's uvroot container when the session has one, and
+    # otherwise replays the profile through the real bwrap.
+    runnerCommand: !!js "[ '/bin/bash', dshHomePath('uvroot', 'bin', 'runner.sh') ]"
+    # A uvroot refusal BEFORE the guest command starts is a runner failure, not
+    # a command failure: report it as SANDBOX_UNAVAILABLE instead of letting a
+    # stray "permission denied" read as a sandbox denial.
+    runnerFailureSignatures:
+      - 'uvroot-runner:'
+      - 'uvroot error:'
+      - 'fatal error: see `uvroot --help`'
+
+- insert:
+    - id: uvroot-env
+      name: '@local/dsh-uvroot-env'
