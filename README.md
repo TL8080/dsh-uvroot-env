@@ -147,8 +147,8 @@ apk add git                  # 装包只落在容器副本里
 
 | 容器类型 | 复制方式 | 副本位置 |
 |---|---|---|
-| 目录 | `cp -a`（保留符号链接） | `instances/<id>/rootfs/` |
-| 镜像 | `cp --sparse=always`（稀疏，16G 虚拟盘只占几十 MB） | `instances/<id>/disk.<img\|qcow2>` |
+| 目录 | `cp -a --reflink=auto`（保留符号链接；读不了的条目告警跳过，不中断） | `instances/<id>/rootfs/` |
+| 镜像 | `cp -a --reflink=auto --sparse=auto`（btrfs/xfs 上写时复制，16G 副本约 9 ms） | `instances/<id>/disk.<img\|qcow2>` |
 | 网络磁盘 | 不复制（数据在远端） | — |
 
 - 删除容器时副本目录一并清理；导出的也是副本；

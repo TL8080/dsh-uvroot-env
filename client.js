@@ -22,15 +22,33 @@ window.__ModuleLoader__.load({
 
     // ── host API ──────────────────────────────────────────────────────────
 
+    // Routes that legitimately take a while (seed copies, archives, image
+    // exports) get a longer budget; everything else fails fast so a stuck
+    // request can never leave a dialog spinning forever.
+    const SLOW_ROUTES = new Set(['/container/create', '/container/update', '/container/export', '/library/import'])
+
     async function api(method, route, body) {
-      const response = await fetch(`/api/uvroot${route}`, {
-        method,
-        headers: body === undefined ? {} : { 'content-type': 'application/json' },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      })
-      const payload = await response.json().catch(() => ({ ok: false, error: `HTTP ${response.status}` }))
-      if (!payload.ok) throw new Error(payload.error ?? `HTTP ${response.status}`)
-      return payload.value
+      const timeoutMs = SLOW_ROUTES.has(route) ? 600_000 : 60_000
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetch(`/api/uvroot${route}`, {
+          method,
+          headers: body === undefined ? {} : { 'content-type': 'application/json' },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: controller.signal,
+        })
+        const payload = await response.json().catch(() => ({ ok: false, error: `HTTP ${response.status}` }))
+        if (!payload.ok) throw new Error(payload.error ?? `HTTP ${response.status}`)
+        return payload.value
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error(`请求超时（${Math.round(timeoutMs / 1000)}s 未响应）：${route}`)
+        }
+        throw error
+      } finally {
+        clearTimeout(timer)
+      }
     }
 
     /** The client plugin context, captured in apply for lazy service lookups. */
@@ -74,6 +92,18 @@ window.__ModuleLoader__.load({
       await refresh()
       emit()
       return value
+    }
+
+    /** Seconds since `active` turned true (0 while idle) — progress feedback. */
+    function useElapsed(active) {
+      const [seconds, setSeconds] = React.useState(0)
+      React.useEffect(() => {
+        if (active !== true) { setSeconds(0); return undefined }
+        const started = Date.now()
+        const timer = setInterval(() => { setSeconds(Math.floor((Date.now() - started) / 1000)) }, 1000)
+        return () => { clearInterval(timer) }
+      }, [active])
+      return seconds
     }
 
     /** Modal signalling shared between the switcher, settings page and overlay. */
@@ -651,6 +681,7 @@ window.__ModuleLoader__.load({
       const [notice, setNotice] = React.useState(null)
       const [confirmDelete, setConfirmDelete] = React.useState(null)
       const [exported, setExported] = React.useState(null)
+      const busySeconds = useElapsed(busy)
 
       React.useEffect(() => {
         if (request === null) return
@@ -802,7 +833,7 @@ window.__ModuleLoader__.load({
                 editingId === null ? null : h('button', { className: 'uv-btn', type: 'button', onClick: () => { setEditingId(null); setDraft(emptyContainer()) } }, '改为新建')),
               h(ContainerForm, { draft, setDraft, library: state.data?.library, uvroot: state.data?.uvroot }),
               h('div', { className: 'uv-row' },
-                h('button', { className: 'uv-btn uv-primary', type: 'button', disabled: busy, onClick: save }, busy ? '处理中…' : '保存容器'),
+                h('button', { className: 'uv-btn uv-primary', type: 'button', disabled: busy, onClick: save }, busy ? `处理中… ${busySeconds}s` : '保存容器'),
                 h(Banner, { text: error }),
                 notice === null ? null : h('span', { className: 'uv-muted' }, notice),
               )),
@@ -862,6 +893,7 @@ window.__ModuleLoader__.load({
       const [working, setWorking] = React.useState(false)
       const [error, setError] = React.useState(null)
       const [confirmDelete, setConfirmDelete] = React.useState(null)
+      const workingSeconds = useElapsed(working)
 
       const workspace = workspaceOf(state.data, path)
       const containers = workspace?.containers ?? []
@@ -1006,7 +1038,7 @@ window.__ModuleLoader__.load({
                   h('strong', null, '新建容器'),
                   h(ContainerForm, { draft, setDraft, library: state.data?.library, uvroot: state.data?.uvroot }),
                   h('div', { className: 'uv-row' },
-                    h('button', { className: 'uv-btn uv-primary', type: 'button', disabled: working, onClick: createContainer }, working ? '处理中…' : '创建容器'),
+                    h('button', { className: 'uv-btn uv-primary', type: 'button', disabled: working, onClick: createContainer }, working ? `创建中… ${workingSeconds}s` : '创建容器'),
                     h('button', { className: 'uv-btn', type: 'button', onClick: toggleCreating }, '取消')),
                 )
                 : null,
@@ -1019,7 +1051,7 @@ window.__ModuleLoader__.load({
                 className: 'uv-btn uv-primary', type: 'button',
                 disabled: working || busy === true,
                 onClick: confirm,
-              }, working ? '处理中…' : '添加')),
+              }, working ? `处理中… ${workingSeconds}s` : '添加')),
           )),
       )
     }

@@ -296,3 +296,48 @@ uvroot 的语法是 `--netfs=<guest>:<uri>`，解析靠**第一个冒号**分隔
 `-b host:guest` 的 guest 不存在时 uvroot 会尝试创建中间目录；如果失败，命令会以
 `can't chdir(...)` 之类的 warning 出现。容器内工作目录始终绑定在**工作区原路径**上，
 所以 `pwd` 与 DSH 文件工具一致，不要把工作区再映射到别的位置。
+
+---
+
+## 13. 创建容器一直显示"处理中…"
+
+**现象**：点「创建容器」后按钮一直是 `处理中…`，容器始终不出现，界面上也没有报错。
+
+**根因（两个叠加）**：
+
+1. **种子复制用 `fs.cpSync`，遇到读不了的文件会整棵中止**：
+   ```
+   Error: EACCES, Permission denied '.../instances/<id>/rootfs/bin'
+   ```
+   典型来源是 rootfs 里的 setuid 程序（本机是 `/home/re-ai_work/rootfs/bin/bbsuid`，
+   模式 4111，普通用户读不了）。GNU `cp -a` 遇到这种文件是**逐条告警并继续**，
+   Node 的 `cpSync` 则是**整个复制失败**。
+2. **复制是同步的**（`cpSync` / `spawnSync`）：大 rootfs / 16G 镜像会把 Node 事件循环**卡住**，
+   期间整个 harness 都不响应，"处理中"就一直挂着。
+
+**处理**（已实现）：
+
+- 复制改用外部命令 + 异步等待，不阻塞事件循环：
+  ```js
+  await run('cp', ['-a', '--reflink=auto', '--sparse=auto', source, target])
+  ```
+- `--reflink=auto` 在 **btrfs / xfs** 上是**写时复制克隆**，几乎瞬时：
+  实测 16 GiB qcow2 副本 **9 ms**、16 GiB 稀疏 raw 副本 **18 ms**、16 MiB rootfs **27 ms**；
+  不支持 reflink 的文件系统会退化成普通复制。
+- 退出码非 0 但目标已存在时**不报错**，只记一条 warn（"有条目无法读取，已跳过"），
+  容器照常可用——和 `cp -a` 的语义一致。
+- 客户端加了**请求超时**（普通 60s，创建/更新/导出/导入 600s），超时会明确报
+  `请求超时（…s 未响应）`，按钮不会永远停住；同时按钮上显示已用秒数（`创建中… 12s`）。
+
+### 13.1 附带修掉的一个坑：`path.join(src, '.')` 会把目录套一层
+
+```js
+join('/a/b', '.')   // → '/a/b'     （不是 '/a/b/.'！）
+```
+
+原来想用 `cp -a src/. dst` 复制"目录内容"，但 `join` 把 `/.` 归一化掉了，
+命令退化成 `cp -a src dst`；而 `dst` 已经被 `mkdirSync` 建好，于是复制成了
+`dst/src/...`——容器根里多出一层同名目录。
+
+现在改成：**不预先创建目标目录**，直接 `cp -a <source> <target>`，
+让 target 本身成为副本。
