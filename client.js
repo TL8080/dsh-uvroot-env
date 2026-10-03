@@ -387,6 +387,30 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * The container fields the host accepts.  The editor draft also carries
+     * view-only state (the `rootfs`/`image` paths the host resolved), so send
+     * the explicit input shape `#normalizeContainer` reads instead of the raw
+     * draft; the host fills the resolved paths back in.
+     */
+    function containerPayload(draft) {
+      const value = withDefaults(draft)
+      return {
+        name: value.name,
+        type: value.type,
+        source: value.source,
+        linked: value.linked,
+        libraryId: value.libraryId,
+        imageFormat: value.imageFormat,
+        networkUri: value.networkUri,
+        mounts: value.mounts,
+        net: value.net,
+        options: value.options,
+        env: value.env,
+        extraArgs: value.extraArgs,
+      }
+    }
+
     /** Placeholder per mount kind; the URI scheme is what selects the backend. */
     const MOUNT_URI_HINT = {
       image: 'img:///abs/path/disk.img 或 qcow2:///abs/path/disk.qcow2',
@@ -806,7 +830,7 @@ window.__ModuleLoader__.load({
                     h('div', { className: 'uv-row' },
                       h('button', { className: 'uv-btn', type: 'button', disabled: busy, onClick: () => { setEditingId(container.id); setDraft(withDefaults(container)) } }, '编辑'),
                       h('button', { className: 'uv-btn', type: 'button', disabled: busy, onClick: () => makeDefault(container.id) }, '设为默认'),
-                      h('button', { className: 'uv-btn', type: 'button', disabled: busy, onClick: () => exportRootfs(container.id) }, '导出 rootfs'),
+                      h('button', { className: 'uv-btn', type: 'button', disabled: busy, onClick: () => exportContainer(container.id) }, '导出 rootfs'),
                       container.type === 'network'
                         ? null
                         : h('button', {
