@@ -193,7 +193,7 @@ apk add git                  # 装包只落在容器副本里
 | `linked` | `true` 时不复制，直接使用种子（有污染风险） | — |
 | `type` | `directory` / `image` / `network` | — |
 | `imageFormat` | `img` / `qcow2` | — |
-| `mounts[]` | `{ host, guest, mode: rw\|ro }` | `-b host:guest`、`--ro=<guest>` |
+| `mounts[]` | 四类挂载，见下 | `-b host:guest` / `--netfs=guest:uri`、`--ro=<guest>` |
 | `net.enabled` | 用户态虚拟网络 | `--net` |
 | `net.bridge` | 桥接实现 | `--net-bridge=userspace\|nat\|none\|kernel` |
 | `net.ifaces[]` | 虚拟接口 | `--net-if=...` |
@@ -206,6 +206,28 @@ apk add git                  # 装包只落在容器副本里
 | `options.shell` | 容器内 shell（留空自动：有 bash 用 bash，否则 sh） | — |
 | `env[]` | `KEY=VALUE` 行，非交互命令也生效 | runner 在宿主 source 后由 guest 继承 |
 | `extraArgs[]` | 追加任意 uvroot 参数 | 原样透传 |
+
+### 挂载映射的四类
+
+容器表单里「+ 宿主路径 / + 网络文件 / + 镜像 / + 网络磁盘」对应 uvroot 的两种挂载方式：
+
+| 类型 | 填什么 | 生成的 uvroot 参数 | 说明 |
+|---|---|---|---|
+| **宿主路径** | 宿主路径 + 容器路径（留空＝同路径） | `-b host:guest`，只读再加 `--ro=guest` | 把宿主目录/文件映射进容器；这是唯一能双向共享宿主文件的方式 |
+| **镜像** | URI（可从镜像库一键填入）+ 容器挂载点 | `--netfs=guest:img:///abs/disk.img`<br>`--netfs=guest:qcow2:///abs/disk.qcow2` | 把磁盘镜像当目录树挂载；**块设备后端，uvroot 强制要求 `--vperm`**（插件会自动补） |
+| **网络文件** | URI + 容器挂载点 | `--netfs=guest:ftp://user:pass@host/pub`<br>`--netfs=guest:sftp://…`<br>`--netfs=guest:smb://server/share`<br>`--netfs=guest:nfs://server/export` | 远端共享目录，按需拉取到私有缓存再绑定进容器；不需要 `/dev/fuse` 或内核模块，Android 上也能用 |
+| **网络磁盘** | URI + 容器挂载点 | `--netfs=guest:nbd://127.0.0.1:10809/export`<br>`--netfs=guest:iscsi://user:pass@host/iqn/lun` | 远端块设备（NBD / iSCSI），同样强制 `--vperm` |
+
+要点：
+
+- 后端由 **URI 的 scheme** 决定，插件只是把它拼成 `--netfs=<guest>:<uri>`；
+- **网络挂载必须填容器挂载点**（容器路径不能留空）——uvroot 的语法是 `guest:uri`，
+  省略 guest 会被 scheme 里的冒号切错；
+- 只读映射追加 `--ro=<guest>`，写入返回 `Read-only file system`；
+- 镜像 / 网络磁盘这类块后端会自动补 `--vperm`（虚拟权限层），否则 uvroot 直接拒绝；
+- 保存时会丢弃没填完的行；
+- 挂载失败是 uvroot 自己的报错（缺驱动、远端不可达、认证失败），会原样回显在命令输出里。
+  网络磁盘需要 libnbd / libiscsi，镜像需要 libext2fs，见[§2.1](#21-前置条件)。
 
 `type` 决定的根参数：
 

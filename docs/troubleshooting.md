@@ -265,3 +265,34 @@ echo "$DSH_UVROOT_SPEC"      # 空 = 没在容器里
 ```
 
 这条路径在本项目里定位过两次渲染期崩溃（`draft=null`、缺 `useProjection` 桩）。
+
+---
+
+## 12. 挂载相关
+
+### 12.1 加了网络挂载后命令报错
+
+先看 uvroot 原始报错，再看驱动：
+
+| 报错 | 原因 |
+|---|---|
+| `netfs: no backend for "..."` | URI 没有 scheme（例如 `--netfs=/mnt/x:/abs/path`）。镜像要写 `img:///abs/...` |
+| `netfs: no user-space filesystem driver could read ...` | 块后端缺 `libext2fs`（见 [§5](#5-镜像容器报-no-user-space-filesystem-driver-could-read)） |
+| `netfs: the virtual permission layer is required for ...` | 块后端缺 `--vperm`（插件会自动补，手写 spec 时要自己加） |
+| `netfs: cannot reach ...` | 远端不可达 / 认证失败 / 缺 libnbd、libiscsi、libnfs、libcurl |
+
+### 12.2 网络挂载的容器路径必须填
+
+uvroot 的语法是 `--netfs=<guest>:<uri>`，解析靠**第一个冒号**分隔。如果 guest 省了：
+
+```
+--netfs=ftp://host/pub      ✗ 会被切成 guest="ftp", uri="//host/pub"
+```
+
+所以插件的表单对网络类挂载强制要求填容器挂载点。
+
+### 12.3 相对 / 深层容器路径
+
+`-b host:guest` 的 guest 不存在时 uvroot 会尝试创建中间目录；如果失败，命令会以
+`can't chdir(...)` 之类的 warning 出现。容器内工作目录始终绑定在**工作区原路径**上，
+所以 `pwd` 与 DSH 文件工具一致，不要把工作区再映射到别的位置。

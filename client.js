@@ -134,7 +134,7 @@ window.__ModuleLoader__.load({
 .uv-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;border:1px solid var(--dsw-alias-border-l3);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:1px 7px}
 .uv-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--dsw-alias-label-secondary)}
 .uv-mounts{display:flex;flex-direction:column;gap:6px}
-.uv-mount{display:grid;grid-template-columns:1fr 1fr 84px 32px;gap:6px;align-items:center}
+
 `
     function StyleSheet() {
       React.useEffect(() => {
@@ -357,6 +357,74 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Placeholder per mount kind; the URI scheme is what selects the backend. */
+    const MOUNT_URI_HINT = {
+      image: 'img:///abs/path/disk.img 或 qcow2:///abs/path/disk.qcow2',
+      networkFile: 'ftp://user:pass@host/pub | sftp://… | smb://server/share | nfs://server/export',
+      networkDisk: 'nbd://127.0.0.1:10809/export | iscsi://user:pass@host/iqn/lun',
+    }
+
+    const MOUNT_KIND_LABEL = {
+      bind: '宿主路径',
+      image: '镜像（img/qcow2）',
+      networkFile: '网络文件（FTP/SFTP/SMB/NFS）',
+      networkDisk: '网络磁盘（NBD/iSCSI）',
+    }
+
+    /**
+     * One mount row. `bind` entries bind a host path (`-b host:guest`); the
+     * other three are uvroot network mounts (`--netfs=guest:uri`) whose backend
+     * is chosen by the URI scheme.
+     */
+    function MountRow({ mount, index, setMount, images, onRemove }) {
+      const kind = mount.kind ?? 'bind'
+      const set = (patch) => setMount(index, patch)
+      const network = kind !== 'bind'
+      return h('div', { className: 'uv-card uv-col', style: { gap: 6 } },
+        h('div', { className: 'uv-row' },
+          h('select', {
+            className: 'uv-select', style: { maxWidth: 190 }, value: kind,
+            onChange: (event) => set({ kind: event.target.value }),
+          },
+          ...Object.entries(MOUNT_KIND_LABEL).map(([value, label]) => h('option', { key: value, value }, label))),
+          network
+            ? h('input', {
+              className: 'uv-input', value: mount.uri ?? '',
+              placeholder: MOUNT_URI_HINT[kind] ?? 'scheme://…',
+              onChange: (event) => set({ uri: event.target.value }),
+            })
+            : h('input', {
+              className: 'uv-input', value: mount.host ?? '',
+              placeholder: '宿主路径，如 /home/user/data',
+              onChange: (event) => set({ host: event.target.value }),
+            }),
+          h('button', { type: 'button', className: 'uv-btn', title: '删除这条映射', onClick: onRemove }, '×')),
+        h('div', { className: 'uv-row' },
+          h('input', {
+            className: 'uv-input', value: mount.guest ?? '',
+            placeholder: network ? '容器内挂载点，如 /mnt/pub（必填）' : '容器内路径（留空＝同宿主路径）',
+            onChange: (event) => set({ guest: event.target.value }),
+          }),
+          h('select', {
+            className: 'uv-select', style: { maxWidth: 96 }, value: mount.mode ?? 'rw',
+            onChange: (event) => set({ mode: event.target.value }),
+          },
+          h('option', { value: 'rw' }, '可写'),
+          h('option', { value: 'ro' }, '只读'))),
+        kind === 'image' && (images ?? []).length > 0
+          ? h('select', {
+            className: 'uv-select', value: '',
+            onChange: (event) => {
+              const entry = (images ?? []).find((candidate) => candidate.path === event.target.value)
+              if (entry !== undefined) set({ uri: `${entry.format}://${entry.path}` })
+            },
+          },
+          h('option', { value: '' }, '— 从镜像库填入 —'),
+          ...(images ?? []).map((entry) => h('option', { key: entry.id, value: entry.path }, `${entry.name} (${entry.format})`)))
+          : null,
+      )
+    }
+
     function ContainerForm({ draft, setDraft, library, uvroot }) {
       // Normalize here as well as at every producer: a render must never crash
       // on a partial draft (the slot entry would abdicate and the dialog would
@@ -473,24 +541,34 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'uv-muted' }, `容器副本：${value.image}`)
               : null),
 
-        h('div', { className: 'uv-field' }, h('span', null, '映射挂载（宿主 → 容器）'),
+        h('div', { className: 'uv-field' }, h('span', null, '挂载映射（宿主路径 / 网络文件 / 镜像 / 网络磁盘 → 容器）'),
           h('div', { className: 'uv-mounts' },
-            ...value.mounts.map((mount, index) => h('div', { className: 'uv-mount', key: index },
-              h('input', { className: 'uv-input', value: mount.host, placeholder: '宿主路径', onChange: (event) => setMount(index, { host: event.target.value }) }),
-              h('input', { className: 'uv-input', value: mount.guest, placeholder: '容器路径（同宿主路径可留空）', onChange: (event) => setMount(index, { guest: event.target.value }) }),
-              h('select', { className: 'uv-select', value: mount.mode, onChange: (event) => setMount(index, { mode: event.target.value }) },
-                h('option', { value: 'rw' }, '可写'),
-                h('option', { value: 'ro' }, '只读')),
+            ...value.mounts.map((mount, index) => h(MountRow, {
+              key: index,
+              mount,
+              index,
+              setMount,
+              library,
+              images: (library?.images ?? []),
+              onRemove: () => set({ mounts: value.mounts.filter((_, cursor) => cursor !== index) }),
+            })),
+            h('div', { className: 'uv-row', style: { flexWrap: 'wrap' } },
               h('button', {
-                type: 'button', className: 'uv-btn', title: '删除',
-                onClick: () => set({ mounts: value.mounts.filter((_, cursor) => cursor !== index) }),
-              }, '×'),
-            )),
-            h('button', {
-              type: 'button', className: 'uv-btn',
-              onClick: () => set({ mounts: [...value.mounts, { host: '', guest: '', mode: 'rw' }] }),
-              style: { alignSelf: 'flex-start' },
-            }, '+ 添加映射'),
+                type: 'button', className: 'uv-btn',
+                onClick: () => set({ mounts: [...value.mounts, { kind: 'bind', host: '', guest: '', uri: '', mode: 'rw' }] }),
+              }, '+ 宿主路径'),
+              h('button', {
+                type: 'button', className: 'uv-btn',
+                onClick: () => set({ mounts: [...value.mounts, { kind: 'networkFile', host: '', guest: '', uri: '', mode: 'ro' }] }),
+              }, '+ 网络文件'),
+              h('button', {
+                type: 'button', className: 'uv-btn',
+                onClick: () => set({ mounts: [...value.mounts, { kind: 'image', host: '', guest: '', uri: '', mode: 'rw' }] }),
+              }, '+ 镜像'),
+              h('button', {
+                type: 'button', className: 'uv-btn',
+                onClick: () => set({ mounts: [...value.mounts, { kind: 'networkDisk', host: '', guest: '', uri: '', mode: 'rw' }] }),
+              }, '+ 网络磁盘')),
           )),
 
         h('div', { className: 'uv-card uv-col' },
